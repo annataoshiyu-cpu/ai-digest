@@ -1,0 +1,71 @@
+name: AI Builders Daily Digest
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 08:00 Beijing time (UTC+8)
+  workflow_dispatch:      # Allow manual trigger from GitHub UI
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Clone follow-builders
+        run: git clone https://github.com/zarazhangrui/follow-builders.git
+
+      - name: Install dependencies
+        run: cd follow-builders/scripts && npm install
+
+      - name: Checkout this repo (for remix script)
+        uses: actions/checkout@v4
+        with:
+          path: this-repo
+
+      - name: Fetch raw content
+        run: |
+          cd follow-builders/scripts
+          node prepare-digest.js > /tmp/raw-data.json
+          echo "Feed fetched. Stats:"
+          node -e "const d=require('/tmp/raw-data.json'); console.log(JSON.stringify(d.stats))"
+
+      - name: Generate bilingual digest with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          node this-repo/scripts/remix-gemini.js /tmp/raw-data.json > /tmp/digest.txt
+          echo "Digest generated ($(wc -c < /tmp/digest.txt) bytes)"
+
+      - name: Send email via Resend
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DELIVERY_EMAIL: ${{ secrets.DELIVERY_EMAIL }}
+        run: |
+          node -e "
+          import('node:fs').then(async ({readFileSync}) => {
+            const text = readFileSync('/tmp/digest.txt', 'utf-8');
+            const today = new Date().toLocaleDateString('en-US', {
+              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+            });
+            const res = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + process.env.RESEND_API_KEY
+              },
+              body: JSON.stringify({
+                from: 'AI Builders Digest <digest@resend.dev>',
+                to: [process.env.DELIVERY_EMAIL],
+                subject: 'AI Builders Digest — ' + today,
+                text: text
+              })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(JSON.stringify(data));
+            console.log('Email sent:', JSON.stringify(data));
+          });
+          "
