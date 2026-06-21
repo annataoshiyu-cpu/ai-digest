@@ -30,14 +30,14 @@ jobs:
         run: |
           cd follow-builders/scripts
           node prepare-digest.js > /tmp/raw-data.json
-          echo "Feed fetched. Stats:"
-          node -e "const d=require('/tmp/raw-data.json'); console.log(JSON.stringify(d.stats))"
+          node -e "const d=require('/tmp/raw-data.json'); console.log('Stats:', JSON.stringify(d.stats))"
 
-      - name: Generate bilingual digest with Gemini
+      - name: Generate bilingual digest with Groq
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          node this-repo/scripts/remix-gemini.js /tmp/raw-data.json > /tmp/digest.txt
+          cd follow-builders/scripts
+          cat /tmp/raw-data.json | GROQ_API_KEY=$GROQ_API_KEY node ../../this-repo/scripts/remix-groq.js > /tmp/digest.txt
           echo "Digest generated ($(wc -c < /tmp/digest.txt) bytes)"
 
       - name: Send email via Resend
@@ -48,6 +48,7 @@ jobs:
           node -e "
           import('node:fs').then(async ({readFileSync}) => {
             const text = readFileSync('/tmp/digest.txt', 'utf-8');
+            if (!text.trim()) throw new Error('Digest is empty');
             const today = new Date().toLocaleDateString('en-US', {
               weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
             });
