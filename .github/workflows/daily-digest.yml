@@ -40,33 +40,14 @@ jobs:
           cat /tmp/raw-data.json | GROQ_API_KEY=$GROQ_API_KEY node ../../this-repo/scripts/remix-groq.js > /tmp/digest.txt
           echo "Digest generated ($(wc -c < /tmp/digest.txt) bytes)"
 
-      - name: Send email via Resend
+      - name: Install nodemailer
+        run: cd follow-builders/scripts && npm install nodemailer
+
+      - name: Send email via Gmail SMTP
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DELIVERY_EMAIL: ${{ secrets.DELIVERY_EMAIL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: |
-          node -e "
-          import('node:fs').then(async ({readFileSync}) => {
-            const text = readFileSync('/tmp/digest.txt', 'utf-8');
-            if (!text.trim()) throw new Error('Digest is empty');
-            const today = new Date().toLocaleDateString('en-US', {
-              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-            });
-            const res = await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + process.env.RESEND_API_KEY
-              },
-              body: JSON.stringify({
-                from: 'AI Builders Digest <digest@resend.dev>',
-                to: [process.env.DELIVERY_EMAIL],
-                subject: 'AI Builders Digest — ' + today,
-                text: text
-              })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(JSON.stringify(data));
-            console.log('Email sent:', JSON.stringify(data));
-          });
-          "
+          cp this-repo/scripts/deliver-smtp.js follow-builders/scripts/deliver-smtp.js
+          cd follow-builders/scripts
+          cat /tmp/digest.txt | GMAIL_USER=$GMAIL_USER GMAIL_APP_PASSWORD=$GMAIL_APP_PASSWORD node deliver-smtp.js
