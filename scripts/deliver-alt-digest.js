@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
-// Sends the alt-investments daily digest (plain text) via Gmail SMTP using
-// nodemailer. Usage: node deliver-alt-digest.js --file /path/to/digest.txt
+// Sends the alt-investments daily digest via Gmail SMTP using nodemailer.
+// The report body uses "**bold**" around deal headlines and "• " bullet
+// lines per field — this renders those as real HTML bold/newlines instead
+// of literal asterisks, while leaving the 【】/━━━/📌 section dividers
+// untouched. A markdown-stripped copy is sent as the plain-text fallback.
+// Usage: node deliver-alt-digest.js --file /path/to/digest.txt
 //        cat digest.txt | node deliver-alt-digest.js
 
 import { readFile } from 'fs/promises';
@@ -21,6 +25,19 @@ async function getDigestText() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString('utf-8');
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function digestToHtml(text) {
+  const body = escapeHtml(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;white-space:pre-wrap;color:#1a1a1a;">${body}</div>`;
+}
+
+function stripMarkdown(text) {
+  return text.replace(/\*\*(.+?)\*\*/g, '$1');
 }
 
 async function main() {
@@ -48,7 +65,8 @@ async function main() {
     from: `另类投资市场动态日报 <${process.env.GMAIL_USER}>`,
     to: process.env.GMAIL_USER,
     subject: `【另类投资市场动态日报】— ${todayCn}`,
-    text,
+    text: stripMarkdown(text),
+    html: digestToHtml(text),
   });
 
   console.log(JSON.stringify({ status: 'ok', method: 'gmail-smtp', message: `Digest sent to ${process.env.GMAIL_USER}` }));
