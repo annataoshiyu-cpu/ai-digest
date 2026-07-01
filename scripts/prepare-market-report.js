@@ -1,41 +1,50 @@
 #!/usr/bin/env node
 
-// Fetches the past week's US stock index closes (Stooq, no API key) and
-// crypto prices (CoinGecko, no API key), prints raw JSON to stdout for
+// Fetches US stock index prices (Yahoo Finance chart endpoint, no API key)
+// and crypto prices (CoinGecko, no API key), prints raw JSON to stdout for
 // remix-market-groq.js to consume.
 
-const STOOQ_SYMBOLS = [
-  { symbol: '^spx', name: 'S&P 500' },
-  { symbol: '^dji', name: 'Dow Jones Industrial Average' },
-  { symbol: '^ndq', name: 'Nasdaq Composite' },
-  { symbol: '^vix', name: 'CBOE Volatility Index (VIX)' },
+const YAHOO_SYMBOLS = [
+  { symbol: '^GSPC', name: 'S&P 500' },
+  { symbol: '^DJI', name: 'Dow Jones Industrial Average' },
+  { symbol: '^IXIC', name: 'Nasdaq Composite' },
+  { symbol: '^VIX', name: 'CBOE Volatility Index (VIX)' },
 ];
 
 const CRYPTO_IDS = ['bitcoin', 'ethereum'];
 
-async function fetchStooqSeries(symbol) {
-  const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&i=d`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Stooq HTTP ${res.status}`);
-  const text = (await res.text()).trim();
-  const lines = text.split('\n').filter(Boolean);
-  if (lines.length < 2 || !lines[0].startsWith('Date')) {
-    throw new Error('Unexpected Stooq response format');
-  }
-  return lines.slice(1).map((line) => {
-    const [date, , , , close] = line.split(',');
-    return { date, close: parseFloat(close) };
-  });
+async function fetchYahooSeries(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d`;
+  // A browser User-Agent avoids Yahoo blocking requests that look like bots.
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; weekly-market-report/1.0)' } });
+  if (!res.ok) throw new Error(`Yahoo Finance HTTP ${res.status}`);
+  const data = await res.json();
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error(data?.chart?.error?.description || 'No chart data returned');
+
+  const { meta, timestamp, indicators } = result;
+  const closes = indicators?.quote?.[0]?.close;
+  if (!timestamp || !closes) throw new Error('Missing timestamp/close series');
+
+  const rows = timestamp
+    .map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(0, 10), close: closes[i] }))
+    .filter((r) => typeof r.close === 'number');
+
+  const latestPrice = typeof meta.regularMarketPrice === 'number' ? meta.regularMarketPrice : rows[rows.length - 1]?.close;
+  const latestDate = meta.regularMarketTime
+    ? new Date(meta.regularMarketTime * 1000).toISOString().slice(0, 10)
+    : rows[rows.length - 1]?.date;
+
+  return { rows, latestPrice, latestDate };
 }
 
-function weeklyChange(rows) {
-  if (!rows || rows.length < 2) return null;
-  const latest = rows[rows.length - 1];
-  const latestDate = new Date(latest.date);
+function weeklyChange({ rows, latestPrice, latestDate }) {
+  if (!rows || rows.length < 2 || typeof latestPrice !== 'number') return null;
+  const latestDateObj = new Date(latestDate);
 
   let priorIdx = -1;
-  for (let i = rows.length - 2; i >= 0; i--) {
-    const diffDays = (latestDate - new Date(rows[i].date)) / 86400000;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const diffDays = (latestDateObj - new Date(rows[i].date)) / 86400000;
     if (diffDays >= 7) {
       priorIdx = i;
       break;
@@ -44,11 +53,11 @@ function weeklyChange(rows) {
   if (priorIdx === -1) priorIdx = Math.max(0, rows.length - 6); // fallback: ~5 trading days back
 
   const prior = rows[priorIdx];
-  const changePct = ((latest.close - prior.close) / prior.close) * 100;
+  const changePct = ((latestPrice - prior.close) / prior.close) * 100;
 
   return {
-    latestDate: latest.date,
-    latestClose: latest.close,
+    latestDate,
+    latestClose: latestPrice,
     priorDate: prior.date,
     priorClose: prior.close,
     changePct,
@@ -57,10 +66,10 @@ function weeklyChange(rows) {
 
 async function fetchIndices() {
   const results = [];
-  for (const { symbol, name } of STOOQ_SYMBOLS) {
+  for (const { symbol, name } of YAHOO_SYMBOLS) {
     try {
-      const rows = await fetchStooqSeries(symbol);
-      const change = weeklyChange(rows);
+      const series = await fetchYahooSeries(symbol);
+      const change = weeklyChange(series);
       if (!change) throw new Error('Not enough historical data');
       results.push({ symbol, name, ...change });
     } catch (e) {
