@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 // Fetches stock/commodity index prices (Yahoo Finance, no API key), crypto
-// prices (CoinGecko, no API key), and macro/earnings calendars (Financial
-// Modeling Prep, needs FMP_API_KEY) — prints raw JSON to stdout for
-// remix-market-groq.js to consume.
+// prices (CoinGecko, no API key), and macro/earnings calendars (Finnhub,
+// needs FINNHUB_API_KEY) — prints raw JSON to stdout for
+// remix-market-gemini.js to consume.
 
 const INDEX_ASSETS = [
   { symbol: '^GSPC', name: '标普500' },
@@ -25,7 +25,7 @@ const CRYPTO_ASSETS = [
   { id: 'ethereum', symbol: 'ETH', name: '以太坊' },
 ];
 
-const FMP_API_KEY = process.env.FMP_API_KEY;
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 
 function isoDate(d) {
   return d.toISOString().slice(0, 10);
@@ -159,23 +159,24 @@ async function fetchCrypto() {
 }
 
 async function fetchMacroCalendar(from, to) {
-  if (!FMP_API_KEY) return { available: false, reason: 'FMP_API_KEY not set', items: [] };
+  if (!FINNHUB_API_KEY) return { available: false, reason: 'FINNHUB_API_KEY not set', items: [] };
   try {
-    const url = `https://financialmodelingprep.com/api/v3/economic_calendar?from=${from}&to=${to}&apikey=${FMP_API_KEY}`;
+    const url = `https://finnhub.io/api/v1/calendar/economic?from=${from}&to=${to}&token=${FINNHUB_API_KEY}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`Finnhub HTTP ${res.status}`);
     const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('Unexpected economic calendar response');
+    const list = data?.economicCalendar;
+    if (!Array.isArray(list)) throw new Error('Unexpected economic calendar response');
 
-    const items = data
-      .filter((e) => ['US', 'EU', 'CN'].includes(e.country) && (e.impact === 'High' || e.impact === 'Medium'))
-      .sort((a, b) => a.date.localeCompare(b.date))
+    const items = list
+      .filter((e) => ['US', 'EU', 'CN'].includes(e.country) && (e.impact === 'high' || e.impact === 'medium'))
+      .sort((a, b) => String(a.time).localeCompare(String(b.time)))
       .slice(0, 10)
       .map((e) => ({
-        date: e.date,
+        date: String(e.time).slice(0, 10),
         country: e.country,
         event: e.event,
-        previous: e.previous,
+        previous: e.prev,
         estimate: e.estimate,
         actual: e.actual,
         impact: e.impact,
@@ -187,23 +188,24 @@ async function fetchMacroCalendar(from, to) {
 }
 
 async function fetchEarningsCalendar(from, to) {
-  if (!FMP_API_KEY) return { available: false, reason: 'FMP_API_KEY not set', items: [] };
+  if (!FINNHUB_API_KEY) return { available: false, reason: 'FINNHUB_API_KEY not set', items: [] };
   try {
-    const url = `https://financialmodelingprep.com/api/v3/earning_calendar?from=${from}&to=${to}&apikey=${FMP_API_KEY}`;
+    const url = `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&token=${FINNHUB_API_KEY}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`Finnhub HTTP ${res.status}`);
     const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('Unexpected earnings calendar response');
+    const list = data?.earningsCalendar;
+    if (!Array.isArray(list)) throw new Error('Unexpected earnings calendar response');
 
-    const items = data
+    const items = list
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(0, 10)
       .map((e) => ({
         date: e.date,
         symbol: e.symbol,
-        time: e.time,
-        epsEstimated: e.epsEstimated,
-        revenueEstimated: e.revenueEstimated,
+        time: e.hour,
+        epsEstimated: e.epsEstimate,
+        revenueEstimated: e.revenueEstimate,
       }));
     return { available: true, items };
   } catch (e) {
