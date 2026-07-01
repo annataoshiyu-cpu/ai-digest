@@ -21,14 +21,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Fetch alt-investments headlines (Google News)
-        run: node scripts/prepare-alt-digest.js > /tmp/alt-digest-data.json
-
-      - name: Generate digest with Groq
+      - name: Generate digest with Gemini (Google Search grounding)
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          cat /tmp/alt-digest-data.json | node scripts/remix-alt-digest-groq.js > /tmp/alt-digest.txt
+          node scripts/generate-alt-digest-gemini.js > /tmp/alt-digest.txt
           echo "Digest generated ($(wc -c < /tmp/alt-digest.txt) bytes)"
 
       - name: Send digest via Gmail SMTP
