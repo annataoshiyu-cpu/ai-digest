@@ -2,5 +2,9 @@
   "name": "ai-digest",
   "version": "1.0.0",
   "type": "module",
-  "description": "AI Builders Digest — GitHub Actions runner"
+  "description": "AI Builders Digest — GitHub Actions runner",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "nodemailer": "^9.0.3"
+  }
 }
