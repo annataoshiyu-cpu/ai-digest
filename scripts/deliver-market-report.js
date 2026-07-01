@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-// Sends the weekly market report via Gmail SMTP using nodemailer.
-// Usage: node deliver-market-report.js --file /path/to/report.txt
-//        echo "text" | node deliver-market-report.js
+// Sends the weekly market report (HTML) via Gmail SMTP using nodemailer.
+// Usage: node deliver-market-report.js --file /path/to/report.html
+//        cat report.html | node deliver-market-report.js
 
 import { readFile } from 'fs/promises';
 import nodemailer from 'nodemailer';
@@ -12,7 +12,7 @@ import { homedir } from 'os';
 
 loadEnv({ path: join(homedir(), '.follow-builders/.env') });
 
-async function getReportText() {
+async function getReportHtml() {
   const args = process.argv.slice(2);
   const fileIdx = args.indexOf('--file');
   if (fileIdx !== -1 && args[fileIdx + 1]) {
@@ -24,8 +24,8 @@ async function getReportText() {
 }
 
 async function main() {
-  const text = await getReportText();
-  if (!text || !text.trim()) {
+  const html = await getReportHtml();
+  if (!html || !html.trim()) {
     console.log(JSON.stringify({ status: 'skipped', reason: 'Empty report' }));
     return;
   }
@@ -40,15 +40,15 @@ async function main() {
     },
   });
 
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  const todayCn = new Date().toLocaleDateString('zh-CN', {
+    month: 'long', day: 'numeric',
   });
 
   await transporter.sendMail({
-    from: `Weekly Market Report <${process.env.GMAIL_USER}>`,
+    from: `市场周报 <${process.env.GMAIL_USER}>`,
     to: process.env.GMAIL_USER,
-    subject: `Weekly Market Report — ${today}`,
-    text,
+    subject: `【市场周报】— ${todayCn}`,
+    html,
   });
 
   console.log(JSON.stringify({ status: 'ok', method: 'gmail-smtp', message: `Report sent to ${process.env.GMAIL_USER}` }));
