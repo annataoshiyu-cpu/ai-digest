@@ -4,6 +4,7 @@
   "type": "module",
   "description": "AI Builders Digest — GitHub Actions runner",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
     "dotenv": "^17.4.2",
     "nodemailer": "^9.0.3"
   }
