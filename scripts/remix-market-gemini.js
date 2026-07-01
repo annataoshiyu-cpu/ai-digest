@@ -1,40 +1,34 @@
 #!/usr/bin/env node
 
 // Reads raw JSON from prepare-market-report.js (via stdin or --file),
-// builds an HTML market report (tables from real data, short Groq-written
+// builds an HTML market report (tables from real data, short Gemini-written
 // commentary grounded in that data), prints the HTML to stdout.
 
 import { readFile } from 'fs/promises';
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-if (!GROQ_API_KEY) {
-  console.error('GROQ_API_KEY not set');
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+if (!GEMINI_API_KEY) {
+  console.error('GEMINI_API_KEY not set');
   process.exit(1);
 }
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama-3.3-70b-versatile';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-async function callGroq(prompt) {
-  const res = await fetch(GROQ_URL, {
+async function callGemini(prompt) {
+  const res = await fetch(GEMINI_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 512,
-      temperature: 0.5,
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.5, maxOutputTokens: 512 },
     }),
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Groq API error: ${err}`);
+    throw new Error(`Gemini API error: ${err}`);
   }
   const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? '';
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
 async function getRawData() {
@@ -90,7 +84,7 @@ function assetTableRows(assets) {
 
 function macroTable(macroCalendar) {
   if (!macroCalendar.available) {
-    const reason = macroCalendar.reason === 'FMP_API_KEY not set'
+    const reason = macroCalendar.reason === 'FINNHUB_API_KEY not set'
       ? '本期未接入宏观日历数据源'
       : `本期宏观日历数据获取失败（${escapeHtml(macroCalendar.reason)}）`;
     return `<p style="font-size:14px;color:#666666;margin:4px 0 0;">${reason}</p>`;
@@ -115,7 +109,7 @@ function macroTable(macroCalendar) {
 
 function earningsTable(earningsCalendar) {
   if (!earningsCalendar.available) {
-    const reason = earningsCalendar.reason === 'FMP_API_KEY not set'
+    const reason = earningsCalendar.reason === 'FINNHUB_API_KEY not set'
       ? '本期未接入财报日历数据源'
       : `本期财报日历数据获取失败（${escapeHtml(earningsCalendar.reason)}）`;
     return `<p style="font-size:14px;color:#666666;margin:4px 0 0;">${reason}</p>`;
@@ -146,7 +140,7 @@ Worst performer: ${worst.name}, WTD change ${fmtPct(worst.wtd.changePct)}
 
 Do NOT invent a specific news event or cause you have no evidence for. You may mention general, widely-known macro themes (e.g. AI enthusiasm, interest rate expectations) only as commonly-cited background context, clearly framed as general context rather than a confirmed cause of this specific move. Output only the Chinese text, no preamble.`;
   try {
-    return (await callGroq(prompt)).trim();
+    return (await callGemini(prompt)).trim();
   } catch (e) {
     return `点评生成失败：${escapeHtml(e.message)}`;
   }
@@ -167,7 +161,7 @@ Earnings calendar: ${earningsText}
 
 Output only the Chinese text, no preamble.`;
   try {
-    return (await callGroq(prompt)).trim();
+    return (await callGemini(prompt)).trim();
   } catch (e) {
     return `摘要生成失败：${escapeHtml(e.message)}`;
   }
@@ -196,7 +190,7 @@ async function main() {
 
   const latestDataDate = allAssets.find((a) => !a.error)?.latestDate;
   const sourcesUsed = ['行情: Yahoo Finance', '加密货币: CoinGecko'];
-  if (macroCalendar.available || earningsCalendar.available) sourcesUsed.push('宏观/财报日历: Financial Modeling Prep');
+  if (macroCalendar.available || earningsCalendar.available) sourcesUsed.push('宏观/财报日历: Finnhub');
 
   const html = `
 <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#1a1a1a;">
