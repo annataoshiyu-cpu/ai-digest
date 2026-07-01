@@ -1,0 +1,38 @@
+name: Weekly Market Report
+
+on:
+  schedule:
+    - cron: '0 1 * * *'  # 09:00 Beijing time (UTC+8), daily
+  workflow_dispatch:      # Allow manual trigger from GitHub UI
+
+jobs:
+  market-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Fetch market data
+        run: node scripts/prepare-market-report.js > /tmp/market-data.json
+
+      - name: Generate report with Groq
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          cat /tmp/market-data.json | node scripts/remix-market-groq.js > /tmp/market-report.txt
+          echo "Report generated ($(wc -c < /tmp/market-report.txt) bytes)"
+
+      - name: Send report via Gmail SMTP
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: cat /tmp/market-report.txt | node scripts/deliver-market-report.js
